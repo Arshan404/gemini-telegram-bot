@@ -4,7 +4,8 @@ import aiohttp
 import asyncio
 import telebot
 from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor
+from aiohttp import ClientSession, ClientTimeout
+from aiohttp.connector import TCPConnector
 
 # Load environment variables from .env file
 load_dotenv()
@@ -12,7 +13,9 @@ load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BASE_API_URL = os.getenv('BASE_API_URL')
 API_KEY = os.getenv('API_KEY')
+PROXY = os.getenv('PROXY')  # Add proxy environment variable if needed
 
+# Create an instance of TeleBot with no proxy
 bot = telebot.TeleBot(TOKEN)
 
 def escape_markdown(text):
@@ -29,7 +32,11 @@ async def handle_api_request(message, delete=False, image_url=None):
         'Content-Type': 'application/json',
         'x-api-key': API_KEY
     }
-    async with aiohttp.ClientSession() as session:
+
+    connector = TCPConnector(proxy=PROXY) if PROXY else TCPConnector()
+    timeout = ClientTimeout(total=30)
+
+    async with ClientSession(connector=connector, timeout=timeout) as session:
         if delete:
             async with session.delete(f"{BASE_API_URL}/delete/{user_id}", headers=headers) as response:
                 return ["Conversation deleted."] if response.status == 200 else ["Error in deletion."]
@@ -64,10 +71,8 @@ def handle_text(message):
         file_info = bot.get_file(message.photo[-1].file_id)
         image_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
 
-    with ThreadPoolExecutor() as executor:
-        loop = asyncio.get_event_loop()
-        future = loop.run_in_executor(executor, lambda: asyncio.run(handle_api_request(message, delete=delete_command, image_url=image_url)))
-        response_text = future.result()
+    loop = asyncio.get_event_loop()
+    response_text = loop.run_until_complete(handle_api_request(message, delete=delete_command, image_url=image_url))
 
     full_response_text = ""
     for response in response_text:
